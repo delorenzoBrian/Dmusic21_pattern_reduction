@@ -47,7 +47,7 @@ title_pdf = filename[0] + ".pdf"
 title_xml = filename[0] + ".xml"
 
 # Remove existing files if they exist
-for output_file in [title_pdf, title_xml, 'dropped_notes.pdf', 'dropped_notes.xml']:
+for output_file in [title_pdf, title_xml, 'dropped_notes.pdf', 'dropped_notes.musicxml']:
     if os.path.exists(output_file):
         os.remove(output_file)
         print(f"Deleted existing file: {output_file}")
@@ -86,7 +86,7 @@ def find_repeated_patterns(score_obj, min_length=5):
     
     for i in range(len(notes)):
         for j in range(i + min_length, len(notes) + 1):
-            pattern = tuple(n.name for n in notes[i:j])  # Create a tuple of note names
+            pattern = tuple(n.nameWithOctave for n in notes[i:j])  # Create a tuple of note names
             patterns.append(pattern)
 
     # Count occurrences of each pattern
@@ -104,7 +104,7 @@ def prioritize_melody(reduced_notes, repeated_patterns):
         priority_notes.update(pattern)  # Add all notes in the pattern to the priority set
     
     # Keep notes from the reduced chord based on priority
-    prioritized_notes = [note for note in reduced_notes if note.name in priority_notes]
+    prioritized_notes = [n for n in reduced_notes if n.nameWithOctave in priority_notes]
     
     # If there are not enough priority notes, fill with remaining notes
     remaining_notes = [note for note in reduced_notes if note not in prioritized_notes]
@@ -184,8 +184,8 @@ for dynamic in dynamics:
 
 # Output new file
 output = new_score.chordify()
-output.write('musicxml.pdf', fp='MuTest')
-os.rename('MuTrans.pdf', 'dropped_notes.pdf')
-os.rename('MuTrans.xml', 'dropped_notes.xml')
+output.write('musicxml', fp=f"{filename[0]}_reduced.musicxml")
+output.write('musicxml.pdf', fp=f"{filename[0]}_reduced.pdf")
+print("Reduced score saved as dropped_notes.musicxml and dropped_notes.pdf")
 
 print("Processing complete.")
