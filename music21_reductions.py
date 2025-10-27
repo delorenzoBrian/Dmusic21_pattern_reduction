@@ -32,7 +32,7 @@ except Exception as e:
     print(f"Error parsing the file: {e}")
     exit()
 
-# Extract tempo, time signature, and dynamics
+# Extract tempo, time signature, dynamics, and song title
 tempo_indications = song.metronomeMarkBoundaries()
 original_tempo = tempo_indications[0][2] if tempo_indications else None
 
@@ -40,6 +40,10 @@ time_signature = song.recurse().getElementsByClass(music21.meter.TimeSignature)
 original_time_signature = time_signature[0] if time_signature else None
 
 dynamics = song.recurse().getElementsByClass(music21.dynamics.Dynamic)
+
+song_title = "Unknown Title"
+if song.metadata and song.metadata.title:
+    song_title = song.metadata.title
 
 # Generate file names for saving
 filename = file.split(".")
@@ -226,6 +230,8 @@ for dynamic in dynamics:
 
 # Output new file
 output = new_score.chordify()
+output.insert(0, music21.metadata.Metadata())
+output.metadata.title = f"{song_title} - Reduced to {limit} voices"
 output.write('musicxml.pdf', fp='MuTest')
 os.rename('MuTrans.pdf', 'dropped_notes.pdf')
 os.rename('MuTrans.xml', 'dropped_notes.xml')
