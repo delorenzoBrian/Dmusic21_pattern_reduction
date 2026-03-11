@@ -81,6 +81,43 @@ else:
 
 print("Done saving original score as PDF and XML.")
 
+def remove_lower_octaves(chord_obj, max_voices):
+    # Convert the tuple of notes to a list so we can modify it
+    notes = list(chord_obj.notes)
+    
+    # If the chord is already within the limit, skip processing
+    if len(notes) <= max_voices:
+        return notes
+
+    # Group notes by pitch class (note name without the octave, e.g., 'C', 'G#')
+    pitch_groups = {}
+    for n in notes:
+        if n.name not in pitch_groups:
+            pitch_groups[n.name] = []
+        pitch_groups[n.name].append(n)
+
+    # Collect all the "removable" duplicate notes (the lower octaves)
+    removable_notes = []
+    for pc, group in pitch_groups.items():
+        if len(group) > 1:
+            # Sort the group from lowest pitch to highest pitch using their MIDI value
+            group.sort(key=lambda x: x.pitch.midi)
+            # Add all notes EXCEPT the highest one to our removable list
+            removable_notes.extend(group[:-1])
+
+    # Sort the removable notes from absolute lowest to highest
+    # This ensures we delete a low bass octave before a mid-range octave
+    removable_notes.sort(key=lambda x: x.pitch.midi)
+
+    # Remove the lowest duplicates until we hit the voice limit
+    for note_to_remove in removable_notes:
+        if len(notes) > max_voices:
+            notes.remove(note_to_remove)
+        else:
+            break
+
+    return notes
+
 # Function to prioritize melody notes in the reduced notes based on the found repeated patterns
 def prioritize_melody(reduced_notes, repeated_patterns, max_voices):
     priority_notes = set()
@@ -100,12 +137,14 @@ def prioritize_melody(reduced_notes, repeated_patterns, max_voices):
 def reduce_chord(chord_obj, max_voices, repeated_patterns):
     notes = chord_obj.notes
     reduced_notes = []
+    filtered_notes = remove_lower_octaves(chord_obj, max_voices)
 
     # Prioritize melody notes first
-    prioritized_notes = prioritize_melody(notes, repeated_patterns, max_voices)
-    
-    # Limit the number of notes based on max_voices
-    reduced_notes = prioritized_notes[:max_voices]
+    if len(filtered_notes) > max_voices:
+        prioritized_notes = prioritize_melody(filtered_notes, repeated_patterns, max_voices)
+        reduced_notes = prioritized_notes
+    else: 
+        reduced_notes = filtered_notes
 
     # If the chord is too short (i.e., fewer notes than max_voices), only use the original notes
     return music21.chord.Chord(reduced_notes)
@@ -150,7 +189,7 @@ def find_repeated_patterns(score_obj, min_length=5):
     
     for i in range(len(notes)):
         for j in range(i + min_length, len(notes) + 1):
-            pattern = tuple(n.name for n in notes[i:j])  # Create a tuple of note names
+            pattern = tuple(n.nameWithOctave for n in notes[i:j])  # Create a tuple of note names
             patterns.append(pattern)
 
     # Count occurrences of each pattern
