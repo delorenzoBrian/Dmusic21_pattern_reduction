@@ -121,34 +121,9 @@ def remove_lower_octaves(chord_obj, max_voices):
 
     return notes
 
-# Function to prioritize melody notes in the reduced notes based on the found repeated patterns
-def prioritize_melody(reduced_notes, repeated_patterns, max_voices):
-    priority_notes = set()
-    for pattern in repeated_patterns:
-        priority_notes.update(pattern)  # Add all notes in the pattern to the priority set
-    
-    # Keep notes from the reduced chord based on priority
-    prioritized_notes = [note for note in reduced_notes if note.name in priority_notes]
-    
-    remaining_notes = [note for note in reduced_notes if note not in prioritized_notes]
-    while len(prioritized_notes) < max_voices and remaining_notes:
-        prioritized_notes.append(remaining_notes.pop(0))
-    
-    return prioritized_notes[:max_voices]  # Ensure the list never exceeds max_voices
-
 # Function to reduce a chord to a specific number of voices
-# skipping prioritize melody for now since this is already being called on melody notes
 def reduce_chord(chord_obj, max_voices, repeated_patterns):
-    notes = chord_obj.notes
-    reduced_notes = []
     filtered_notes = remove_lower_octaves(chord_obj, max_voices)
-
-    # Prioritize melody notes first
-    if len(filtered_notes) > max_voices:
-        prioritized_notes = prioritize_melody(filtered_notes, repeated_patterns, max_voices)
-        reduced_notes = prioritized_notes
-    else: 
-        reduced_notes = filtered_notes
 
     # If the chord is too short (i.e., fewer notes than max_voices), only use the original notes
     return music21.chord.Chord(filtered_notes[:max_voices]) # Ensure the chord never exceeds max_voices
@@ -202,7 +177,8 @@ def add_patterns(score_obj, repeated_patterns, chunk_size=5):
         else:
             # if there's no pattern, just insert a rest as a placeholder to maintain timing
             # first check if there's already a note or rest at this offset in the reduced stream to avoid overwriting it
-            existing_element = reduced_stream.flatten().getElementsByOffset(element.offset)
+            existing_element = reduced_stream.flatten().getElementsByOffset(element.offset, mustBeginInSpan=False)
+            existing_element = existing_element.notesAndRests # Filter to include only notes and rests. This seems to only be necessary at offset = 0 for some reason.
             if len(existing_element) == 0:
                 rest = music21.note.Rest(quarterLength=element.quarterLength)
                 reduced_stream.insert(element.offset, rest)
@@ -210,7 +186,7 @@ def add_patterns(score_obj, repeated_patterns, chunk_size=5):
     # Loop through the last few elements that weren't included in the chunk processing and add rests to maintain timing
     for i in range(len(notes_and_rests)-chunk_size+1, len(notes_and_rests)):
         element = notes_and_rests[i]
-        existing_element = reduced_stream.flatten().getElementsByOffset(element.offset)
+        existing_element = reduced_stream.flatten().getElementsByOffset(element.offset, mustBeginInSpan=False)
         if len(existing_element) == 0:
             rest = music21.note.Rest(quarterLength=element.quarterLength)
             reduced_stream.insert(element.offset, rest)
@@ -220,15 +196,16 @@ def add_patterns(score_obj, repeated_patterns, chunk_size=5):
 def reduce_score(score_obj, max_voices, repeated_patterns, reduced_stream):
     old_score = score_obj.flatten().notesAndRests
     # Loop through the old score and reduce or add notes to the new score as necessary
-    for old_element in old_score.flatten().notesAndRests:
+    for old_element in old_score.notesAndRests:
         element = reduced_stream.getElementsByOffset(old_element.offset)
+        element = element.notesAndRests
         if len(element) == 0:
-            element = old_element
-        else:
-            element = element[0]
+            reduced_stream.insert(old_element.offset, old_element)
+            element = reduced_stream.getElementsByOffset(old_element.offset).notesAndRests
+        element = element[0]
         offset = element.offset
 
-        if isinstance(element, music21.chord.Chord):
+        if element.isChord:
             if len(element.notes) > max_voices:
                 reduced_chord = reduce_chord(element, max_voices, repeated_patterns) # reduce the chord to the max voices limit
             elif len(element.notes) < max_voices:
@@ -239,18 +216,19 @@ def reduce_score(score_obj, max_voices, repeated_patterns, reduced_stream):
             # Only append if the reduced chord has notes (no artificial additions)
             if reduced_chord.notes:
                 reduced_stream.remove(element) # Remove the original chord
-                reduced_stream.insertAndShift(offset, reduced_chord) # Insert the reduced chord at the same offset. might cause overlap issues
+                reduced_stream.insertAndShift(offset, reduced_chord) # Insert the reduced chord at the same offset
         elif old_element.isChord:
             # check if there's a chord at this offset in the original score that we can add notes back from
             if len(old_element.notes) > max_voices:
                 added_chord = reduce_chord(old_element, max_voices, repeated_patterns) # reduce the chord to the max voices limit
-            elif len(old_element.notes) < max_voices: #probably don't need this branch
-                added_chord = add_notes(old_score, max_voices, old_element)
             else:
                 added_chord = old_element
-            reduced_stream.remove(element) # Remove the original rest
-            reduced_stream.insertAndShift(offset, added_chord) # Insert the added chord at the same offset. might cause overlap issues
-            print(f"Added notes back at offset {offset} based on original score chord: {added_chord.pitchedCommonName}")
+            reduced_stream.remove(element) # Remove the original element (likely a rest)
+            reduced_stream.insertAndShift(offset, added_chord) # Insert the added chord at the same offset
+        else:
+            # both new and old elements are rests, so keep the rest from the old score
+            reduced_stream.remove(element)
+            reduced_stream.insert(offset, old_element)
 
     return reduced_stream
 
