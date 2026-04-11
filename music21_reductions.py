@@ -5,84 +5,78 @@ from importlib import util
 from collections import Counter
 from collections import defaultdict
 
-# Verify that music21 is installed
-print("Checking if 'music21' is installed...")
-if util.find_spec("music21") is not None:
-    print("'music21' is installed and ready to use.")
-else:
-    print("Error: 'music21' is not installed.")
-    exit()
+# Configuration for pattern reduction
+PATTERN_LENGTH = 5
+MIN_PATTERN_COUNT = 2
 
-# Set up MuseScore paths
-music21.environment.set('musicxmlPath', r'C:/Program Files/MuseScore 4/bin/Musescore4.exe')
-music21.environment.set('musescoreDirectPNGPath', r'C:/Program Files/MuseScore 4/bin/Musescore4.exe')
+class SongConfiguration:
+    def __init__(self, stream, limit):
+        self.stream = stream
+        self.limit = limit
 
-# Read the input music xml file and get the user's desired number of parts
-file = input("Please enter a filename:\n")
-print(f"You entered {file}")
-limit = int(input("Enter the maximum number of notes played simultaneously.\n"))
-print(f"{limit} voices of polyphony will be preserved.")
-print("Running converter...\n")
+    title = "Unknown Title"
+    tempo = None
+    time_signature = None
+    dynamics = None
 
-# Parse the file using music21
-try:
-    song = music21.converter.parse(file)
-    #song = song.chordify()  # Chordify the song
-    num_parts = len(song.parts)
-    print("File parsed and chordified successfully.")
-    print(f"Found {num_parts} parts.\n")
-except Exception as e:
-    print(f"Error parsing the file: {e}")
-    exit()
+# This function sets up the environment, reads the input file, and extracts necessary information for processing.
+def setup():
+    # Verify that music21 is installed
+    print("Checking if 'music21' is installed...")
+    if util.find_spec("music21") is not None:
+        print("'music21' is installed and ready to use.")
+    else:
+        print("Error: 'music21' is not installed.")
+        exit()
 
-# Extract tempo, time signature, dynamics, and song title
-tempo_indications = song.metronomeMarkBoundaries()
-original_tempo = tempo_indications[0][2] if tempo_indications else None
+    # Set up MuseScore paths
+    music21.environment.set('musicxmlPath', r'C:/Program Files/MuseScore 4/bin/Musescore4.exe')
+    music21.environment.set('musescoreDirectPNGPath', r'C:/Program Files/MuseScore 4/bin/Musescore4.exe')
 
-time_signature = song.recurse().getElementsByClass(music21.meter.TimeSignature)
-original_time_signature = time_signature[0] if time_signature else None
+    # Read the input music xml file and get the user's desired number of parts
+    file = input("Please enter a filename:\n")
+    print(f"You entered {file}")
+    limit = int(input("Enter the maximum number of notes played simultaneously.\n"))
+    print(f"{limit} voices of polyphony will be preserved.")
+    print("Running converter...\n")
 
-dynamics = song.recurse().getElementsByClass(music21.dynamics.Dynamic)
+    # Parse the file using music21
+    try:
+        stream = music21.converter.parse(file)
+        #song = song.chordify()  # Chordify the song
+        num_parts = len(stream.parts)
+        print("File parsed and chordified successfully.")
+        print(f"Found {num_parts} parts.\n")
+    except Exception as e:
+        print(f"Error parsing the file: {e}")
+        exit()
 
-song_title = "Unknown Title"
-if song.metadata and song.metadata.title:
-    song_title = song.metadata.title
+    Song = SongConfiguration(stream, limit)
 
-# Generate file names for saving
-filename = file.split(".")
-title_pdf = filename[0] + ".pdf"
-title_xml = filename[0] + ".xml"
+    # Extract tempo, time signature, dynamics, and song title
+    tempo_indications = Song.stream.metronomeMarkBoundaries()
+    Song.tempo = tempo_indications[0][2] if tempo_indications else None
 
-# Remove existing files if they exist
-for output_file in [title_pdf, title_xml, 'dropped_notes.pdf', 'dropped_notes.xml']:
-    if os.path.exists(output_file):
-        os.remove(output_file)
-        print(f"Deleted existing file: {output_file}")
+    time_signature = Song.stream.recurse().getElementsByClass(music21.meter.TimeSignature)
+    Song.time_signature = time_signature[0] if time_signature else None
 
-# Save the original results as PDF and XML
-try:
-    print("Attempting to write original score as MusicXML and PDF...")
-    song.write('musicxml', fp='MuTrans.xml')
-    song.write('musicxml.pdf', fp='MuTrans.pdf')
-    print("MusicXML and PDF written successfully.")
-except Exception as e:
-    print(f"Error writing files: {e}")
-    exit()
+    Song.dynamics = Song.stream.recurse().getElementsByClass(music21.dynamics.Dynamic)
 
-# Rename files if they exist
-if os.path.exists('MuTrans.xml'):
-    os.rename('MuTrans.xml', title_xml)
-    print(f"Renamed MuTrans.xml to {title_xml}")
-else:
-    print("Error: 'MuTrans.xml' was not created.")
+    if Song.stream.metadata and Song.stream.metadata.title:
+        Song.title = Song.stream.metadata.title
 
-if os.path.exists('MuTrans.pdf'):
-    os.rename('MuTrans.pdf', title_pdf)
-    print(f"Renamed MuTrans.pdf to {title_pdf}")
-else:
-    print("Error: 'MuTrans.pdf' was not created.")
+    # Generate file names for saving
+    filename = file.split(".")
+    title_pdf = filename[0] + ".pdf"
+    title_xml = filename[0] + ".xml"
 
-print("Done saving original score as PDF and XML.")
+    # Remove existing files if they exist
+    for output_file in [title_pdf, title_xml]:
+        if os.path.exists(output_file):
+            os.remove(output_file)
+            print(f"Deleted existing file: {output_file}")
+    
+    return Song
 
 def remove_lower_octaves(chord_obj, max_voices):
     # Convert the tuple of notes to a list so we can modify it
@@ -147,7 +141,7 @@ def add_notes(old_score, max_voices, chord_obj=music21.chord.Chord()):
     return music21.chord.Chord(added_notes)
 
 # Function to reduce a music21 score to a specific number of voices (without adding extra notes)
-def add_patterns(score_obj, repeated_patterns, chunk_size=5):
+def add_patterns(score_obj, repeated_patterns, chunk_size=PATTERN_LENGTH):
     reduced_stream = music21.stream.Part()
 
     # Preserve the time signature and tempo
@@ -242,7 +236,7 @@ def get_chord_pattern(notes):
 
     return tuple(distances), tuple(noteLengths) # convert to tuple for hashability
 
-def get_chunk(notes, i, chunk_size=5):
+def get_chunk(notes, i, chunk_size=PATTERN_LENGTH):
     chunk = []
     for j in range(i, i+chunk_size):
         element = notes[j]
@@ -253,7 +247,7 @@ def get_chunk(notes, i, chunk_size=5):
     return chunk
 
 # Function to find repeated patterns of notes in the score
-def find_repeated_patterns(score_obj, min_length=5):
+def find_repeated_patterns(score_obj, min_length=PATTERN_LENGTH):
     flat = score_obj.flatten().notesAndRests
     notesAndChords = [n for n in flat if n.isNote or n.isChord]
     
@@ -262,88 +256,32 @@ def find_repeated_patterns(score_obj, min_length=5):
         repeated_patterns[get_chord_pattern(noteList)] += 1
 
 # Main processing of chords
-repeated_patterns = defaultdict(int)
-for part in song.parts:
-    part = part.chordify()
-    find_repeated_patterns(part)
-# Filter out patterns that only occur once
-repeated_patterns = {pattern: count for pattern, count in repeated_patterns.items() if count > 1}
-print(f"Identified {len(repeated_patterns)} sets of repeated patterns across the parts.")
+if __name__ == "__main__":
+    Song = setup()
+    repeated_patterns = defaultdict(int)
+    for part in Song.stream.parts:
+        part = part.chordify()
+        find_repeated_patterns(part)
+    # Filter out patterns that only occur once
+    repeated_patterns = {pattern: count for pattern, count in repeated_patterns.items() if count > MIN_PATTERN_COUNT}
+    print(f"Identified {len(repeated_patterns)} sets of repeated patterns across the parts.")
 
-if limit <= 1:
-    part = music21.stream.Part()
-    new_score = music21.stream.Score(id='main_score')
-    new_score.insert(0, part)
-
-    # Add tempo and time signature if available
-    if original_tempo:
-        part.append(original_tempo)
-    if original_time_signature:
-        part.append(original_time_signature)
-
-    for thisChord in song.recurse().getElementsByClass(['Chord', 'Rest']):
-        count = 0
-        ranked_list = []
-        if thisChord.isChord:
-            print(thisChord.pitchedCommonName)
-            if (thisChord.containsTriad() or thisChord.isIncompleteMajorTriad() or thisChord.isIncompleteMinorTriad() or thisChord.isSeventh()) and count < limit:
-                note = music21.note.Note(thisChord.third, quarterLength=thisChord.quarterLength)
-                ranked_list.append(note)
-                count += 1
-
-            if (thisChord.containsSeventh() or thisChord.isDominantSeventh() or thisChord.isSeventh()) and count < limit:
-                note = music21.note.Note(thisChord.seventh, quarterLength=thisChord.quarterLength)
-                ranked_list.append(note)
-                count += 1
-
-            if (thisChord.containsTriad() or thisChord.isIncompleteMajorTriad() or thisChord.isIncompleteMinorTriad()) and count < limit:
-                note = music21.note.Note(thisChord.root(), quarterLength=thisChord.quarterLength)
-                ranked_list.append(note)
-                count += 1
-
-            if thisChord.containsTriad() and count < limit:
-                note = music21.note.Note(thisChord.fifth, quarterLength=thisChord.quarterLength)
-                ranked_list.append(note)
-                count += 1
-
-            if not (thisChord.containsTriad() or thisChord.isIncompleteMajorTriad() or thisChord.isIncompleteMinorTriad()) and count < limit:
-                note = music21.note.Note(thisChord.root(), quarterLength=thisChord.quarterLength)
-                ranked_list.append(note)
-                count += 1
-
-        if thisChord.isRest:
-            rest = music21.note.Rest(quarterLength=thisChord.quarterLength)
-            ranked_list.append(rest)
-            count += 1
-
-        while count < limit:
-            rest = music21.note.Rest(quarterLength=thisChord.quarterLength)
-            ranked_list.append(rest)
-            count += 1
-        
-        # Add the reduced notes to the part
-        for note in ranked_list:
-            part.append(note)
-
-else:
     part_idx = 0
     new_score = music21.stream.Score(id='main_score')
-    for part in song.parts:
+    for part in Song.stream.parts:
         reduced_part = add_patterns(part, repeated_patterns)
         new_score.insert(0, reduced_part)  # Insert the reduced part directly into the score
         part_idx += 1
     new_score = new_score.chordify()  # Chordify the new score after adding patterns
-    new_score = reduce_score(song.chordify(), limit, repeated_patterns, new_score)
+    new_score = reduce_score(Song.stream.chordify(), Song.limit, repeated_patterns, new_score)
 
-# Apply dynamics to each part
-for dynamic in dynamics:
-    new_score.insert(dynamic.offset, dynamic)
+    # Apply dynamics to each part
+    for dynamic in Song.dynamics:
+        new_score.insert(dynamic.offset, dynamic)
 
-# Output new file
-output = new_score
-output.insert(0, music21.metadata.Metadata())
-output.metadata.title = f"{song_title} - Reduced to {limit} voices"
-output.write('musicxml.pdf', fp='MuTest')
-os.rename('MuTrans.pdf', 'dropped_notes.pdf')
-os.rename('MuTrans.xml', 'dropped_notes.xml')
-print("Done!")
+    # Output new file
+    output = new_score
+    output.insert(0, music21.metadata.Metadata())
+    output.metadata.title = f"{Song.title} - Reduced to {Song.limit} voices"
+    output.write('musicxml.pdf', fp='MuTest')
+    print("Done!")
