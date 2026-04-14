@@ -193,7 +193,7 @@ def reduce_score(score_obj, max_voices, repeated_patterns, reduced_stream):
     for old_element in old_score.notesAndRests:
         element = reduced_stream.getElementsByOffset(old_element.offset)
         element = element.notesAndRests
-        if len(element) == 0:
+        if len(element) == 0: # if there's no element at this offset in the new reduced stream, add the original element from the old score.
             reduced_stream.insert(old_element.offset, old_element)
             element = reduced_stream.getElementsByOffset(old_element.offset).notesAndRests
         element = element[0]
@@ -218,7 +218,7 @@ def reduce_score(score_obj, max_voices, repeated_patterns, reduced_stream):
             else:
                 added_chord = old_element
             reduced_stream.remove(element) # Remove the original element (likely a rest)
-            reduced_stream.insertAndShift(offset, added_chord) # Insert the added chord at the same offset
+            reduced_stream.insert(offset, added_chord) # Insert the added chord at the same offset
         else:
             # both new and old elements are rests, so keep the rest from the old score
             reduced_stream.remove(element)
@@ -243,7 +243,7 @@ def get_chunk(notes, i, chunk_size=PATTERN_LENGTH):
         if element.isNote:
             chunk.append(element)
         elif element.isChord:
-            chunk.append(music21.note.Note(element.root())) # only considering root for now, might expand to the whole chord or just use the highest note in the future
+            chunk.append(music21.note.Note(element.root(), duration=element.duration)) # only considering root for now, might expand to the whole chord or just use the highest note in the future
     return chunk
 
 # Function to find repeated patterns of notes in the score
@@ -263,7 +263,7 @@ if __name__ == "__main__":
         part = part.chordify()
         find_repeated_patterns(part)
     # Filter out patterns that only occur once
-    repeated_patterns = {pattern: count for pattern, count in repeated_patterns.items() if count > MIN_PATTERN_COUNT}
+    repeated_patterns = {pattern: count for pattern, count in repeated_patterns.items() if count >= MIN_PATTERN_COUNT}
     print(f"Identified {len(repeated_patterns)} sets of repeated patterns across the parts.")
 
     part_idx = 0
